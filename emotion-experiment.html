@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Music Emotion Rating Experiment</title>
+  <script src="https://unpkg.com/jspsych@7.3.4"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" />
+  <style>
+    body {
+      cursor: crosshair;
+    }
+    #emotion-slider {
+      width: 90%;
+      height: 60px;
+      cursor: crosshair;
+      -webkit-appearance: none;
+      appearance: none;
+      background: linear-gradient(to right, #ff6b6b 0%, #ffd93d 50%, #6bcf7f 100%);
+      border-radius: 10px;
+      outline: none;
+      pointer-events: none;
+    }
+    #emotion-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 40px;
+      height: 80px;
+      background: #2c3e50;
+      cursor: crosshair;
+      border-radius: 8px;
+      border: 3px solid white;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      pointer-events: auto;
+    }
+    #emotion-slider::-moz-range-thumb {
+      width: 40px;
+      height: 80px;
+      background: #2c3e50;
+      cursor: crosshair;
+      border-radius: 8px;
+      border: 3px solid white;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .slider-container {
+      text-align: center;
+      margin: 50px auto;
+      max-width: 900px;
+      padding: 20px;
+    }
+    #current-value {
+      font-size: 32px;
+      font-weight: bold;
+      margin: 30px;
+      color: #333;
+    }
+    .slider-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 15px;
+      font-weight: bold;
+      font-size: 16px;
+    }
+    #data-counter {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: #4CAF50;
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      font-weight: bold;
+      z-index: 1000;
+    }
+    .graph-container {
+      max-width: 800px;
+      margin: 30px auto;
+      padding: 20px;
+      background: #f9f9f9;
+      border-radius: 10px;
+    }
+    #tracking-indicator {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(76, 175, 80, 0.9);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-weight: bold;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="data-counter">Samples: 0</div>
+</body>
+<script>
+
+  let currentAudio = null;
+  let totalSamples = 0;
+  let songDataHistory = [];
+
+  function updateCounter() {
+    const counter = document.getElementById('data-counter');
+    if (counter) {
+      counter.textContent = 'Samples: ' + totalSamples;
+    }
+  }
+
+  const jsPsych = initJsPsych({
+    override_safe_mode: true,
+    on_finish: function() {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+      }
+      jsPsych.data.get().localSave('csv', 'emotion-data-' + Date.now() + '.csv');
+    }
+  });
+
+  const songs = [
+    { file: '1.mp3', duration: 254000, name: 'Song 1' },
+    { file: '2.mp3', duration: 132000, name: 'Song 2' },
+    { file: '3.mp3', duration: 51000, name: 'Song 3' },
+    { file: '4.mp3', duration: 152000, name: 'Song 4' },
+    { file: '5.mp3', duration: 229000, name: 'Song 5' }
+  ];
+
+  const instructions = {
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: '<div style="max-width: 700px; margin: auto;"><h2>Music Emotion Rating Experiment</h2><p>You will listen to 5 songs. During each song, <strong>move your cursor left and right anywhere on the page</strong> to control the slider.</p><p><strong>Valence Scale (0-100):</strong></p><ul><li><strong>0 = Very Sad / Melancholic / Hopeless</strong></li><li><strong>50 = Neutral</strong></li><li><strong>100 = Very Happy / Joyous / Hopeful</strong></li></ul><p><strong>Important:</strong> You can move your cursor anywhere on the screen - the slider will follow your horizontal position!</p><p>After each song, you will see a graph of your emotional ratings.</p><p>Press <strong>SPACE</strong> to begin.</p></div>',
+    choices: [' ']
+  };
+
+  function createSongTrial(songIndex) {
+    const song = songs[songIndex];
+    const numSamples = Math.floor(song.duration / 500);
+    let samplingInterval = null;
+    let currentSongData = [];
+    
+    return {
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: '',
+      choices: "NO_KEYS",
+      trial_duration: song.duration,
+      on_start: function() {
+        if (currentAudio) {
+          currentAudio.pause();
+          currentAudio = null;
+        }
+        currentSongData = [];
+      },
+      on_load: function() {
+        document.querySelector('#jspsych-content').innerHTML = 
+          '<div class="slider-container">' +
+          '<h3>' + song.name + ' (' + (songIndex + 1) + ' of ' + songs.length + ')</h3>' +
+          '<p>Move your cursor left/right anywhere on the screen to control the slider</p>' +
+          '<input type="range" min="0" max="100" value="50" id="emotion-slider">' +
+          '<div class="slider-labels"><span>Very Sad (0)</span><span>Neutral (50)</span><span>Very Happy (100)</span></div>' +
+          '<div id="current-value">Valence: 50</div>' +
+          '</div>' +
+          '<div id="tracking-indicator">Cursor tracking active - Move anywhere!</div>';
+
+        const slider = document.getElementById('emotion-slider');
+        const valueDisplay = document.getElementById('current-value');
+        
+        // Track cursor position anywhere on the entire page
+        document.addEventListener('mousemove', updateSliderFromCursor);
+        
+        function updateSliderFromCursor(e) {
+          // Calculate value based on cursor X position relative to window width
+          const windowWidth = window.innerWidth;
+          const cursorX = e.clientX;
+          const percentage = cursorX / windowWidth;
+          const value = Math.round(percentage * 100);
+          
+          // Clamp between 0 and 100
+          const clampedValue = Math.max(0, Math.min(100, value));
+          
+          slider.value = clampedValue;
+          valueDisplay.textContent = 'Valence: ' + clampedValue;
+        }
+        
+        // Also allow normal slider interaction
+        slider.addEventListener('input', function() {
+          valueDisplay.textContent = 'Valence: ' + slider.value;
+        });
+
+        currentAudio = new Audio(song.file);
+        currentAudio.play().catch(function(err) {
+          console.error('Audio error:', err);
+        });
+
+        let sampleCount = 0;
+        samplingInterval = setInterval(function() {
+          sampleCount++;
+          totalSamples++;
+          
+          const valence = parseInt(slider.value);
+          
+          const dataPoint = {
+            song_index: songIndex + 1,
+            song_name: song.name,
+            sample_index: sampleCount,
+            time_ms: sampleCount * 500,
+            valence: valence
+          };
+          
+          jsPsych.data.write(dataPoint);
+          currentSongData.push(dataPoint);
+          
+          updateCounter();
+          
+          if (sampleCount >= numSamples) {
+            clearInterval(samplingInterval);
+          }
+        }, 500);
+      },
+      on_finish: function() {
+        // Remove the global mouse listener when trial ends
+        document.removeEventListener('mousemove', updateSliderFromCursor);
+        
+        if (samplingInterval) {
+          clearInterval(samplingInterval);
+        }
+        if (currentAudio) {
+          currentAudio.pause();
+          currentAudio = null;
+        }
+        
+        songDataHistory.push({
+          songIndex: songIndex,
+          songName: song.name,
+          data: currentSongData
+        });
+        
+        console.log('Song ' + (songIndex + 1) + ' complete. Samples: ' + currentSongData.length);
+      }
+    };
+  }
+
+  function createGraphScreen(songIndex) {
+    return {
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: function() {
+        return '<div class="graph-container">' +
+          '<h3>Your Emotional Response: ' + songs[songIndex].name + '</h3>' +
+          '<canvas id="emotion-chart" width="800" height="400"></canvas>' +
+          '<p style="margin-top: 20px;">Press <strong>SPACE</strong> to continue.</p>' +
+          '</div>';
+      },
+      choices: [' '],
+      on_load: function() {
+        const songData = songDataHistory[songIndex].data;
+        
+        const timeLabels = songData.map(function(d) {
+          return (d.time_ms / 1000).toFixed(1) + 's';
+        });
+        
+        const valenceValues = songData.map(function(d) {
+          return d.valence;
+        });
+        
+        const ctx = document.getElementById('emotion-chart').getContext('2d');
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: timeLabels,
+            datasets: [{
+              label: 'Emotional Valence (0-100)',
+              data: valenceValues,
+              borderColor: '#4CAF50',
+              backgroundColor: 'rgba(76, 175, 80, 0.1)',
+              borderWidth: 2,
+              fill: true,
+              tension: 0.3
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              title: {
+                display: true,
+                text: songs[songIndex].name + ' - Emotional Valence Over Time',
+                font: { size: 16 }
+              },
+              legend: {
+                display: true
+              }
+            },
+            scales: {
+              y: {
+                min: 0,
+                max: 100,
+                title: {
+                  display: true,
+                  text: 'Valence (Sad ← → Happy)'
+                },
+                ticks: {
+                  callback: function(value) {
+                    if (value === 0) return 'Very Sad (0)';
+                    if (value === 50) return 'Neutral (50)';
+                    if (value === 100) return 'Very Happy (100)';
+                    return value;
+                  }
+                }
+              },
+              x: {
+                title: {
+                  display: true,
+                  text: 'Time'
+                },
+                ticks: {
+                  maxTicksLimit: 15
+                }
+              }
+            }
+          }
+        });
+      }
+    };
+  }
+
+  function createBreak(songIndex) {
+    return {
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: '<h3>Break Time</h3><p>Get ready for the next song.</p><p>Press <strong>SPACE</strong> to continue.</p>',
+      choices: [' ']
+    };
+  }
+
+  let timeline = [instructions];
+
+  for (let i = 0; i < songs.length; i++) {
+    timeline.push(createSongTrial(i));
+    timeline.push(createGraphScreen(i));
+    if (i < songs.length - 1) {
+      timeline.push(createBreak(i));
+    }
+  }
+
+  timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: function() {
+      return '<h2>Thank you!</h2><p>Total samples collected: <strong>' + totalSamples + '</strong></p><p>Press any key to download your complete data as CSV.</p>';
+    },
+    on_finish: function() {
+      console.log('Experiment complete! Total samples: ' + totalSamples);
+    }
+  });
+
+  jsPsych.run(timeline);
+
+</script>
+</html>
+
