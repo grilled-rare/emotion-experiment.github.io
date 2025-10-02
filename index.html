@@ -100,6 +100,7 @@
   let currentAudio = null;
   let totalSamples = 0;
   let songDataHistory = [];
+  let mouseListener = null; // Store listener reference globally
 
   function updateCounter() {
     const counter = document.getElementById('data-counter');
@@ -143,7 +144,7 @@
       type: jsPsychHtmlKeyboardResponse,
       stimulus: '',
       choices: "NO_KEYS",
-      trial_duration: song.duration,
+      trial_duration: song.duration + 1000, // Add buffer time
       on_start: function() {
         if (currentAudio) {
           currentAudio.pause();
@@ -165,24 +166,20 @@
         const slider = document.getElementById('emotion-slider');
         const valueDisplay = document.getElementById('current-value');
         
-        // Track cursor position anywhere on the entire page
-        document.addEventListener('mousemove', updateSliderFromCursor);
-        
-        function updateSliderFromCursor(e) {
-          // Calculate value based on cursor X position relative to window width
+        // Define mouse listener
+        mouseListener = function(e) {
           const windowWidth = window.innerWidth;
           const cursorX = e.clientX;
           const percentage = cursorX / windowWidth;
           const value = Math.round(percentage * 100);
-          
-          // Clamp between 0 and 100
           const clampedValue = Math.max(0, Math.min(100, value));
           
           slider.value = clampedValue;
           valueDisplay.textContent = 'Valence: ' + clampedValue;
-        }
+        };
         
-        // Also allow normal slider interaction
+        document.addEventListener('mousemove', mouseListener);
+        
         slider.addEventListener('input', function() {
           valueDisplay.textContent = 'Valence: ' + slider.value;
         });
@@ -190,6 +187,14 @@
         currentAudio = new Audio(song.file);
         currentAudio.play().catch(function(err) {
           console.error('Audio error:', err);
+        });
+
+        // Auto-finish when audio ends
+        currentAudio.addEventListener('ended', function() {
+          setTimeout(function() {
+            if (samplingInterval) clearInterval(samplingInterval);
+            jsPsych.finishTrial();
+          }, 600);
         });
 
         let sampleCount = 0;
@@ -218,12 +223,12 @@
         }, 500);
       },
       on_finish: function() {
-        // Remove the global mouse listener when trial ends
-        document.removeEventListener('mousemove', updateSliderFromCursor);
-        
-        if (samplingInterval) {
-          clearInterval(samplingInterval);
+        // Remove mouse listener
+        if (mouseListener) {
+          document.removeEventListener('mousemove', mouseListener);
+          mouseListener = null;
         }
+        
         if (currentAudio) {
           currentAudio.pause();
           currentAudio = null;
@@ -244,25 +249,44 @@
     return {
       type: jsPsychHtmlKeyboardResponse,
       stimulus: function() {
+        const songHistory = songDataHistory[songIndex];
+        if (!songHistory || !songHistory.data || songHistory.data.length === 0) {
+          return '<div class="graph-container"><h3>Error: No data collected for ' + songs[songIndex].name + '</h3><p>Press SPACE to continue</p></div>';
+        }
+        
+        const actualSamples = songHistory.data.length;
+        const expectedSamples = Math.floor(songs[songIndex].duration / 500);
+        
         return '<div class="graph-container">' +
           '<h3>Your Emotional Response: ' + songs[songIndex].name + '</h3>' +
-          '<canvas id="emotion-chart" width="800" height="400"></canvas>' +
+          '<p style="font-size:14px;color:#666;">Samples collected: ' + actualSamples + ' (expected: ' + expectedSamples + ')</p>' +
+          '<canvas id="emotion-chart-' + songIndex + '" width="800" height="400"></canvas>' +
           '<p style="margin-top: 20px;">Press <strong>SPACE</strong> to continue.</p>' +
           '</div>';
       },
       choices: [' '],
       on_load: function() {
-        const songData = songDataHistory[songIndex].data;
+        const songHistory = songDataHistory[songIndex];
+        if (!songHistory || !songHistory.data || songHistory.data.length === 0) {
+          console.error('No data for song ' + songIndex);
+          return;
+        }
         
+        const songData = songHistory.data;
         const timeLabels = songData.map(function(d) {
           return (d.time_ms / 1000).toFixed(1) + 's';
         });
-        
         const valenceValues = songData.map(function(d) {
           return d.valence;
         });
         
-        const ctx = document.getElementById('emotion-chart').getContext('2d');
+        const canvas = document.getElementById('emotion-chart-' + songIndex);
+        if (!canvas) {
+          console.error('Canvas not found');
+          return;
+        }
+        
+        const ctx = canvas.getContext('2d');
         new Chart(ctx, {
           type: 'line',
           data: {
@@ -318,6 +342,8 @@
             }
           }
         });
+        
+        console.log('Graph rendered for song ' + songIndex);
       }
     };
   }
@@ -325,7 +351,7 @@
   function createBreak(songIndex) {
     return {
       type: jsPsychHtmlKeyboardResponse,
-      stimulus: '<h3>Break Time</h3><p>Get ready for the next song.</p><p>Press <strong>SPACE</strong> to continue.</p>',
+      stimulus: '<div style="text-align:center;"><h3>Break Time</h3><p>Get ready for the next song.</p><p>Press <strong>SPACE</strong> to continue.</p></div>',
       choices: [' ']
     };
   }
@@ -343,10 +369,7 @@
   timeline.push({
     type: jsPsychHtmlKeyboardResponse,
     stimulus: function() {
-      return '<h2>Thank you!</h2><p>Total samples collected: <strong>' + totalSamples + '</strong></p><p>Press any key to download your complete data as CSV.</p>';
-    },
-    on_finish: function() {
-      console.log('Experiment complete! Total samples: ' + totalSamples);
+      return '<div style="text-align:center;"><h2>Thank you!</h2><p>Total samples collected: <strong>' + totalSamples + '</strong></p><p>Press any key to download your data.</p></div>';
     }
   });
 
@@ -354,4 +377,3 @@
 
 </script>
 </html>
-
