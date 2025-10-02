@@ -60,7 +60,7 @@
       font-weight: bold;
       font-size: 16px;
     }
-    #data-counter {
+    .data-counter {
       position: fixed;
       top: 10px;
       right: 10px;
@@ -69,7 +69,7 @@
       padding: 10px;
       border-radius: 5px;
       font-weight: bold;
-      z-index: 1000;
+      z-index: 9999;
     }
     .graph-container {
       max-width: 800px;
@@ -78,7 +78,7 @@
       background: #f9f9f9;
       border-radius: 10px;
     }
-    #tracking-indicator {
+    .tracking-indicator {
       position: fixed;
       bottom: 20px;
       left: 50%;
@@ -89,24 +89,23 @@
       border-radius: 5px;
       font-weight: bold;
       font-size: 14px;
+      z-index: 9999;
     }
   </style>
 </head>
-<body>
-  <div id="data-counter">Samples: 0</div>
-</body>
+<body></body>
 <script>
 
   let currentAudio = null;
   let totalSamples = 0;
   let songDataHistory = [];
-  let mouseListener = null; // Store listener reference globally
+  let mouseListener = null;
 
   function updateCounter() {
-    const counter = document.getElementById('data-counter');
-    if (counter) {
+    const counters = document.querySelectorAll('.data-counter');
+    counters.forEach(function(counter) {
       counter.textContent = 'Samples: ' + totalSamples;
-    }
+    });
   }
 
   const jsPsych = initJsPsych({
@@ -139,43 +138,42 @@
     const numSamples = Math.floor(song.duration / 500);
     let samplingInterval = null;
     let currentSongData = [];
+    let audioEnded = false;
     
     return {
       type: jsPsychHtmlKeyboardResponse,
       stimulus: '',
       choices: "NO_KEYS",
-      trial_duration: song.duration + 1000, // Add buffer time
+      trial_duration: song.duration + 2000,
       on_start: function() {
+        console.log('Starting song ' + (songIndex + 1));
         if (currentAudio) {
           currentAudio.pause();
           currentAudio = null;
         }
         currentSongData = [];
+        audioEnded = false;
       },
       on_load: function() {
         document.querySelector('#jspsych-content').innerHTML = 
+          '<div class="data-counter">Samples: ' + totalSamples + '</div>' +
           '<div class="slider-container">' +
           '<h3>' + song.name + ' (' + (songIndex + 1) + ' of ' + songs.length + ')</h3>' +
-          '<p>Move your cursor left/right anywhere on the screen to control the slider</p>' +
+          '<p>Move your cursor left/right anywhere on the screen</p>' +
           '<input type="range" min="0" max="100" value="50" id="emotion-slider">' +
           '<div class="slider-labels"><span>Very Sad (0)</span><span>Neutral (50)</span><span>Very Happy (100)</span></div>' +
           '<div id="current-value">Valence: 50</div>' +
           '</div>' +
-          '<div id="tracking-indicator">Cursor tracking active - Move anywhere!</div>';
+          '<div class="tracking-indicator">Cursor tracking active!</div>';
 
         const slider = document.getElementById('emotion-slider');
         const valueDisplay = document.getElementById('current-value');
         
-        // Define mouse listener
         mouseListener = function(e) {
-          const windowWidth = window.innerWidth;
-          const cursorX = e.clientX;
-          const percentage = cursorX / windowWidth;
-          const value = Math.round(percentage * 100);
-          const clampedValue = Math.max(0, Math.min(100, value));
-          
-          slider.value = clampedValue;
-          valueDisplay.textContent = 'Valence: ' + clampedValue;
+          const percentage = e.clientX / window.innerWidth;
+          const value = Math.max(0, Math.min(100, Math.round(percentage * 100)));
+          slider.value = value;
+          valueDisplay.textContent = 'Valence: ' + value;
         };
         
         document.addEventListener('mousemove', mouseListener);
@@ -189,12 +187,15 @@
           console.error('Audio error:', err);
         });
 
-        // Auto-finish when audio ends
         currentAudio.addEventListener('ended', function() {
-          setTimeout(function() {
-            if (samplingInterval) clearInterval(samplingInterval);
-            jsPsych.finishTrial();
-          }, 600);
+          if (!audioEnded) {
+            audioEnded = true;
+            console.log('Audio ended, finishing trial in 600ms');
+            setTimeout(function() {
+              if (samplingInterval) clearInterval(samplingInterval);
+              jsPsych.finishTrial();
+            }, 600);
+          }
         });
 
         let sampleCount = 0;
@@ -222,11 +223,16 @@
           }
         }, 500);
       },
-      on_finish: function() {
-        // Remove mouse listener
+      on_finish: function(data) {
+        console.log('Song trial finishing');
+        
         if (mouseListener) {
           document.removeEventListener('mousemove', mouseListener);
           mouseListener = null;
+        }
+        
+        if (samplingInterval) {
+          clearInterval(samplingInterval);
         }
         
         if (currentAudio) {
@@ -240,7 +246,8 @@
           data: currentSongData
         });
         
-        console.log('Song ' + (songIndex + 1) + ' complete. Samples: ' + currentSongData.length);
+        console.log('Stored data for song ' + (songIndex + 1) + ': ' + currentSongData.length + ' samples');
+        console.log('songDataHistory length: ' + songDataHistory.length);
       }
     };
   }
@@ -249,50 +256,59 @@
     return {
       type: jsPsychHtmlKeyboardResponse,
       stimulus: function() {
+        console.log('Creating graph for song index: ' + songIndex);
+        console.log('songDataHistory:', songDataHistory);
+        
         const songHistory = songDataHistory[songIndex];
-        if (!songHistory || !songHistory.data || songHistory.data.length === 0) {
-          return '<div class="graph-container"><h3>Error: No data collected for ' + songs[songIndex].name + '</h3><p>Press SPACE to continue</p></div>';
+        
+        if (!songHistory) {
+          console.error('No song history at index ' + songIndex);
+          return '<div style="text-align:center;padding:50px;"><h3>Error: No data found</h3><p>songDataHistory length: ' + songDataHistory.length + '</p><p>Looking for index: ' + songIndex + '</p><p>Press SPACE to continue</p></div>';
+        }
+        
+        if (!songHistory.data || songHistory.data.length === 0) {
+          console.error('No data in song history');
+          return '<div style="text-align:center;padding:50px;"><h3>Error: No samples collected</h3><p>Press SPACE to continue</p></div>';
         }
         
         const actualSamples = songHistory.data.length;
         const expectedSamples = Math.floor(songs[songIndex].duration / 500);
         
-        return '<div class="graph-container">' +
+        return '<div class="data-counter">Samples: ' + totalSamples + '</div>' +
+          '<div class="graph-container">' +
           '<h3>Your Emotional Response: ' + songs[songIndex].name + '</h3>' +
-          '<p style="font-size:14px;color:#666;">Samples collected: ' + actualSamples + ' (expected: ' + expectedSamples + ')</p>' +
-          '<canvas id="emotion-chart-' + songIndex + '" width="800" height="400"></canvas>' +
-          '<p style="margin-top: 20px;">Press <strong>SPACE</strong> to continue.</p>' +
+          '<p style="font-size:14px;color:#666;">Samples: ' + actualSamples + ' / ' + expectedSamples + '</p>' +
+          '<canvas id="chart' + songIndex + '" width="800" height="400"></canvas>' +
+          '<p style="margin-top:20px;"><strong>Press SPACE to continue</strong></p>' +
           '</div>';
       },
       choices: [' '],
       on_load: function() {
+        console.log('Graph screen loading for song ' + songIndex);
+        
         const songHistory = songDataHistory[songIndex];
         if (!songHistory || !songHistory.data || songHistory.data.length === 0) {
-          console.error('No data for song ' + songIndex);
+          console.error('Cannot render graph - no data');
           return;
         }
         
         const songData = songHistory.data;
-        const timeLabels = songData.map(function(d) {
-          return (d.time_ms / 1000).toFixed(1) + 's';
-        });
-        const valenceValues = songData.map(function(d) {
-          return d.valence;
-        });
+        const canvas = document.getElementById('chart' + songIndex);
         
-        const canvas = document.getElementById('emotion-chart-' + songIndex);
         if (!canvas) {
-          console.error('Canvas not found');
+          console.error('Canvas not found: chart' + songIndex);
           return;
         }
         
-        const ctx = canvas.getContext('2d');
-        new Chart(ctx, {
+        const timeLabels = songData.map(function(d) { return (d.time_ms / 1000).toFixed(1); });
+        const valenceValues = songData.map(function(d) { return d.valence; });
+        
+        new Chart(canvas.getContext('2d'), {
           type: 'line',
           data: {
             labels: timeLabels,
             datasets: [{
-              label: 'Emotional Valence (0-100)',
+              label: 'Valence',
               data: valenceValues,
               borderColor: '#4CAF50',
               backgroundColor: 'rgba(76, 175, 80, 0.1)',
@@ -306,44 +322,25 @@
             plugins: {
               title: {
                 display: true,
-                text: songs[songIndex].name + ' - Emotional Valence Over Time',
+                text: songs[songIndex].name + ' - Emotional Trajectory',
                 font: { size: 16 }
-              },
-              legend: {
-                display: true
               }
             },
             scales: {
               y: {
                 min: 0,
                 max: 100,
-                title: {
-                  display: true,
-                  text: 'Valence (Sad ← → Happy)'
-                },
-                ticks: {
-                  callback: function(value) {
-                    if (value === 0) return 'Very Sad (0)';
-                    if (value === 50) return 'Neutral (50)';
-                    if (value === 100) return 'Very Happy (100)';
-                    return value;
-                  }
-                }
+                title: { display: true, text: 'Valence' }
               },
               x: {
-                title: {
-                  display: true,
-                  text: 'Time'
-                },
-                ticks: {
-                  maxTicksLimit: 15
-                }
+                title: { display: true, text: 'Time (seconds)' },
+                ticks: { maxTicksLimit: 15 }
               }
             }
           }
         });
         
-        console.log('Graph rendered for song ' + songIndex);
+        console.log('Graph rendered successfully');
       }
     };
   }
@@ -351,7 +348,7 @@
   function createBreak(songIndex) {
     return {
       type: jsPsychHtmlKeyboardResponse,
-      stimulus: '<div style="text-align:center;"><h3>Break Time</h3><p>Get ready for the next song.</p><p>Press <strong>SPACE</strong> to continue.</p></div>',
+      stimulus: '<div class="data-counter">Samples: ' + totalSamples + '</div><div style="text-align:center;padding:50px;"><h3>Break Time</h3><p>Press <strong>SPACE</strong> for next song</p></div>',
       choices: [' ']
     };
   }
@@ -368,9 +365,8 @@
 
   timeline.push({
     type: jsPsychHtmlKeyboardResponse,
-    stimulus: function() {
-      return '<div style="text-align:center;"><h2>Thank you!</h2><p>Total samples collected: <strong>' + totalSamples + '</strong></p><p>Press any key to download your data.</p></div>';
-    }
+    stimulus: '<div style="text-align:center;padding:50px;"><h2>Thank You!</h2><p>Total samples: <strong>' + totalSamples + '</strong></p><p>Press any key to download.</p></div>',
+    choices: "ALL_KEYS"
   });
 
   jsPsych.run(timeline);
